@@ -1,0 +1,264 @@
+---
+title: "Data Visualization Project"
+output: pdf_document
+---
+# Project
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(stargazer)
+library(AER)
+library(ggthemes)
+library(brms)
+
+
+consumption <- read_excel("countriesconsume.xlsx")
+countries <- read_excel("alcconsumptionpercapita.xlsx")
+alcoholism <- read_csv("ALCOHOL.csv")
+alcohol <- read_xlsx("alcohol revenue world.xlsx")
+gdpalc <- read_xlsx("alcoholgdppercapita.xlsx") 
+alcohol_revenue_gdp <- inner_join(alcohol, gdpalc, by = c("Country Name")) 
+merged<- merge(countries, alcoholism, by = "Country") 
+model <- lm(alcoholismByCountry_both ~ `liters of pure alcohol`, data = merged) 
+summary(model)
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(merged, aes(x = `liters of pure alcohol`, y = alcoholismByCountry_both)) +
+  geom_point() +
+  labs(x = "Amount Pure Alcohol Consumed (liters) ", y = "Alcoholism rate (%)") +
+  ggtitle("Scatterplot of Alcoholism vs Alcohol Consumption",)
+correlation <- cor(merged$`liters of pure alcohol`, merged$alcoholismByCountry_both)
+
+cooks <- cooks.distance(model)
+threshold <- 4*mean(cooks, na.rm = TRUE)
+outliers <- which(cooks > threshold)
+merged[outliers, , drop = FALSE]  
+
+```
+```{r}
+bayesianmodel <- brm(volume ~ culture + religion + (1 | country), data = alcoholism, family = gaussian())
+summary(bayesianmodel)
+```
+
+```{r}
+
+alcohol_revenue_gdp$GDP <- as.numeric(alcohol_revenue_gdp$GDP)
+alcohol_revenue_gdp$Revenue <- as.numeric(alcohol_revenue_gdp$Revenue) 
+
+colnames(alcohol_revenue_gdp)[colnames(alcohol_revenue_gdp) == 'Country Name'] <- 'CountryName' 
+colnames(alcohol_revenue_gdp)[colnames(alcohol_revenue_gdp) == 'GDP per Capita (current USD$)'] <- 'GDP' 
+
+ggplot(alcohol_revenue_gdp, aes(x = GDP, y = Revenue)) + 
+  geom_smooth(method = "lm", mapping = aes(x = GDP, y = Revenue), color= "darkred", se = FALSE) +  
+  geom_text(data = filter(alcohol_revenue_gdp, CountryName %in% c("United States", "China", "Japan", "Luxembourg")), aes(label = CountryName), vjust = 1.45, hjust = 0.6, size= 1.85)+ 
+  labs(title = "Alcohol Sales Revenue vs. GDP Per Capita in 135 Countries",               
+       x = "GDP Per Capita (Current USD)",      
+       y = "Alcohol Sales Revenue (USD Billions)",       
+       caption = "Source: Statista, World Bank") + 
+       scale_y_continuous(breaks = seq(0, max(alcohol_revenue_gdp$Revenue), by = 50), labels = scales::comma) + y-axis
+  scale_x_continuous(breaks = seq(0, max(alcohol_revenue_gdp$GDP), by = 10000),
+                     labels = scales::comma) + 
+  theme_classic()+ 
+  theme(plot.title = element_text(size = 12), 
+        plot.subtitle = element_text(size = 9)  ) 
+
+correlation_coefficient <- cor(alcohol_revenue_gdp$GDP, alcohol_revenue_gdp$Revenue) 
+print(correlation_coefficient)
+ggplot(alcohol_revenue_gdp, aes(x = GDP, y = Revenue)) + 
+    geom_point() +  
+    geom_smooth(method = "lm", mapping = aes(x = GDP, y = Revenue), color= "darkred", se = FALSE) + 
+    geom_text(data = filter(alcohol_revenue_gdp, CountryName %in% c("United States", "China", "Japan", "Luxembourg")), aes(label = CountryName), vjust = 1.45, hjust = 0.6, size= 1.85)+ 
+    labs(title = "Alcohol Sales Revenue vs. GDP Per Capita in 135 Countries",
+         x = "GDP Per Capita (Current USD)",  
+         y = "Alcohol Sales Revenue (USD Billions)",     
+         caption = "Source: Statista, World Bank") +
+    scale_y_continuous(breaks = seq(0, max(alcohol_revenue_gdp$Revenue), by = 10), labels = scales::comma) +  
+  scale_x_continuous(breaks = seq(0, max(alcohol_revenue_gdp$GDP), by = 10000),
+                     labels = scales::comma) + 
+    theme_classic()+ 
+    theme(plot.title = element_text(size = 12), 
+          plot.subtitle = element_text(size = 9))+ 
+    coord_cartesian(xlim = c(0, 130000), ylim = c(0, 120)) 
+
+ml <- lm(Revenue ~ GDP, data = alcohol_revenue_gdp) 
+summary(ml)
+ncvTest(ml) 
+stargazer(ml, type = "text") 
+```
+
+```{r}
+price_ew <- read_excel("raw_data.xlsx", sheet = "price per unit in usd")
+price <- price_ew %>% 
+  pivot_longer( cols = -Type, 
+                names_to = "Year", 
+                values_to = "Price")
+price <- price %>%
+  filter(Type != "Total")
+
+sales_ew <- read_excel("raw_data.xlsx", sheet = "volume by segment in billion l")
+sales <- sales_ew %>% 
+  pivot_longer( cols = -Type, 
+                names_to = "Year", 
+                values_to = "Volume")
+
+income <- read_excel("raw_data.xlsx", sheet = "personal income in billion $")
+income$Year <- as.character(income$Year)
+ 
+temp <- right_join(price, sales, by = c("Year", "Type"))
+
+final <- right_join(temp, income, by = c("Year"))
+```
+
+```{r}
+beer <- final %>%
+  filter(Type == "Beer")
+e_beer <- lm(log(Volume) ~ log(Price), data = beer)
+summary(e_beer)
+
+cpr <- final %>%
+  filter(Type == "Cider, Perry & Rice Wine")
+e_cpr <- lm(log(Volume) ~ log(Price), data = cpr)
+summary(e_cpr)
+
+seltzer <- final %>%
+  filter(Type == "Hard Seltzer") %>%
+  filter(Volume != 0.00)
+e_seltzer <- lm(log(Volume) ~ log(Price), data = seltzer)
+summary(e_seltzer)
+
+spirits <- final %>%
+  filter(Type == "Spirits")
+e_sp <- lm(log(Volume) ~ log(Price), data = spirits)
+summary(e_sp)
+
+wine <- final %>%
+  filter(Type == "Wine")
+e_wine <- lm(log(Volume) ~ log(Price), data = wine)
+summary(e_wine)
+```
+
+```{r}
+final$elasticity <- ifelse(final$Type == "Beer", e_beer$coefficients[2], NA)
+final$elasticity <- ifelse(final$Type == "Cider, Perry & Rice Wine", e_cpr$coefficients[2], final$elasticity)
+final$elasticity <- ifelse(final$Type == "Hard Seltzer", e_seltzer$coefficients[2], final$elasticity)
+final$elasticity <- ifelse(final$Type == "Spirits", e_sp$coefficients[2], final$elasticity)
+final$elasticity <- ifelse(final$Type == "Wine", e_wine$coefficients[2], final$elasticity)
+```
+
+```{r}
+temp <- final %>% 
+  filter(Type != "Total")
+temp$e_rounded <- round(temp$elasticity, 2)
+ggplot(temp, aes(x = Type, y = elasticity)) + geom_point() +
+  labs(title = "Demand Elasticity of Alcoholic Drinks", x = "Beverage Type", y = "Demand Elasticity")+
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = e_rounded), vjust = -0.5, size = 4)
+
+
+temp <- final %>% 
+  filter(Type != "Total") %>%
+  filter(Type != "Hard Seltzer")
+temp$e_rounded <- round(temp$elasticity, 2)
+ggplot(temp, aes(x = Type, y = elasticity)) + geom_point() +
+  labs(title = "Demand Elasticity of Alcoholic Drinks", x = "Beverage Type", y = "Demand Elasticity")+
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = e_rounded), vjust = -0.5, size = 4)
+```
+
+```{r}
+#Find income elasticity of each type of beverage
+incBeer <- final %>%
+  filter(Year != "2023") %>%
+  filter(Type == "Beer")
+
+e_incbeer <- lm(log(Volume) ~ log(Income), data = incBeer)
+summary(e_incbeer)
+
+incCpr <- final %>%
+  filter(Year != "2023") %>%
+  filter(Type == "Cider, Perry & Rice Wine")
+
+e_inccpr <- lm(log(Volume) ~ log(Income), data = incCpr)
+summary(e_inccpr)
+
+incSeltzer <- final %>%
+  filter(Year != "2023") %>%
+  filter(Volume!= 0) %>%
+  filter(Type == "Hard Seltzer")
+
+e_incseltzer <- lm(log(Volume) ~ log(Income), data = incSeltzer)
+summary(e_incseltzer)
+
+incSp <- final %>%
+  filter(Year != "2023") %>%
+  filter(Type == "Spirits")
+
+e_incsp <- lm(log(Volume) ~ log(Income), data = incSp)
+summary(e_incsp)
+
+incW <- final %>%
+  filter(Year != "2023") %>%
+  filter(Type == "Wine")
+
+e_incw <- lm(log(Volume) ~ log(Income), data = incW)
+summary(e_incw)
+
+incTotal <- final %>%
+  filter(Year != "2023") %>%
+  filter(Type == "Total")
+
+e_inctotal <- lm(log(Volume) ~ log(Income), data = incTotal)
+summary(e_inctotal)
+```
+```{r}
+final$income_elasticity <- ifelse(final$Type == "Beer", e_incbeer$coefficients[2], NA)
+final$income_elasticity <- ifelse(final$Type == "Cider, Perry & Rice Wine", e_inccpr$coefficients[2], final$income_elasticity)
+final$income_elasticity <- ifelse(final$Type == "Hard Seltzer", e_incseltzer$coefficients[2], final$income_elasticity)
+final$income_elasticity <- ifelse(final$Type == "Spirits", e_incsp$coefficients[2], final$income_elasticity)
+final$income_elasticity <- ifelse(final$Type == "Wine", e_incw$coefficients[2], final$income_elasticity)
+final$income_elasticity <- ifelse(final$Type == "Total", e_inctotal$coefficients[2], final$income_elasticity)
+
+final$ei_rounded <- round(final$income_elasticity, 2)
+ggplot(final, aes(x = Type, y = income_elasticity)) + geom_point() +
+  labs(title = "Income Elasticity of Alcoholic Drinks", x = "Beverage Type", y = "Income Elasticity")+
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = ei_rounded), vjust = -0.5, size = 4)
+```
+
+```{r}
+temp <- final %>%
+  filter(Year!= 2023)
+lr <- lm(Volume ~ Income, data = temp)
+summary(lr)
+residualPlots(lr, quadratic = F)        
+```
+
+```{r}
+cluster <- alcoholism[, c("GDP", "volume", "price", "type", "alcoholismByCountry_both")]
+scaled_data <- scale(cluster)
+k <- 3  
+
+set.seed(123)  
+kmeans_model <- kmeans(scaled_data, centers = k)
+alcoholism$Cluster <- kmeans_model$cluster
+table(alcoholism$Cluster)  
+
+cluster1 <- alcoholism[alcoholism$Cluster == 1, ]
+cluster2 <- alcoholism[alcoholism$Cluster == 2, ]
+cluster3 <- alcoholism[alcoholism$Cluster == 3, ]
+
+cluster_1 <- glm(alcoholismByCountry_both ~ GDP + volume + price + type, data = cluster1, family = "binomial")
+cluster_2 <- glm(alcoholismByCountry_both ~ GDP + volume + price + type, data = cluster2, family = "binomial")
+cluster_3 <- glm(alcoholismByCountry_both ~ GDP + volume + price + type, data = cluster3, family = "binomial")
+
+summary(cluster_1)
+summary(cluster_2)
+summary(cluster_3)
+
+```
